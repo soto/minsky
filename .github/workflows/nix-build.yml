@@ -1,0 +1,58 @@
+name: Nix Build pyminsky
+
+on:
+  push:
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - '**.cc'
+      - '**.h'
+      - 'Makefile'
+      - 'testpyminsky/**'
+      - '.github/workflows/nix-build.yml'
+  pull_request:
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - '**.cc'
+      - '**.h'
+      - 'Makefile'
+      - 'testpyminsky/**'
+      - '.github/workflows/nix-build.yml'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Build pyminsky
+        run: nix build .#pyminsky -L
+
+      - name: Smoke test
+        run: |
+          PYMINSKY_PKG=$(nix build .#pyminsky --no-link --print-out-paths)
+          NIX_PYTHON=$(nix build nixpkgs#python3 --no-link --print-out-paths)/bin/python3
+          SITE_PACKAGES=$(find "$PYMINSKY_PKG" -type d -name site-packages)
+          PYTHONPATH="$SITE_PACKAGES" \
+            $NIX_PYTHON -c "from pyminsky import minsky; print(f'pyminsky {minsky.minskyVersion()} on ${{ matrix.os }}')"
+
+      - name: Run test suite
+        run: make -C testpyminsky
